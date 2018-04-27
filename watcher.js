@@ -45,14 +45,25 @@ Vue.prototype  = {
             }
         }
     },
-    compileEleNode: function (node) {
+    compileEleNode: function (node,vm) {
         var attrs = node.attributes;
         // 针对可输入框的绑定指令
         [].slice.call(attrs).forEach( function (attr) {
             var attrReg  = /^[:|v-bind:](\w?)$/,
                 eventReg = /^[@|v-on:](\w?)$/;
-            if(attr.name.test(attrReg)) {
-                
+            if (attr.name.test(attrReg)) {
+                node.setAttribute(RegExp.$1,vm[attr.value]);
+            }
+            if (attr.name.test(eventReg)) {
+                node.addEventListener(RegExp.$1,function () {
+                    vm[attr.name];
+                },false)
+            }
+            if (node.childNodes&&node.childNodes.length!=0) {
+                var child;
+                while (child = node.childNodes) {
+                    this.compileTemp(node,vm);
+                }
             }
         })
 
