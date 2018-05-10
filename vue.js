@@ -6,8 +6,7 @@ function Vue(options) {
 var app = new Vue({
     el:"#app",
     data:{
-        name:{
-            big:'what happend'
-        }
+        name:"Yao Ming",
+        country: "China"
     }
 })
