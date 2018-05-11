@@ -1,9 +1,12 @@
-function Watcher(vm,node,key,updateFun) {
+function Watcher(vm,node,updateFun,text) {
+    Dep.target = null;
     console.log("初始化绑定watcher");
     console.log(node)
-    this.get(vm,key);
+    this.vm = vm;
     this.node = node;
+    this.text = text;
     this.updateFun = updateFun;
+    Dep.target = this;
 }
 Watcher.prototype = {
     get: function(vm,key) {
@@ -12,9 +15,10 @@ Watcher.prototype = {
         var value = vm[key];
         Dep.target = null;
     },
-    update:function(newval,oldval) {
+    update:function() {
         var self = this;
         console.log(self.node);
-        this.updateFun(self.node,newval,oldval);
+        console.log(self.updateFun);
+        self.updateFun(self.node,this.text,this.vm);
     }
 }

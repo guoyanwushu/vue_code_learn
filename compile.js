@@ -37,32 +37,49 @@ Compile.prototype = {
         var text = node.nodeValue, // 单纯对文本节点来说nodeValue 和 textContent 基本是一样的
             reg = /\{\{(.*?)\}\}/g;
         var vim = vm;
-        //debuggers
-        console.log(reg.test(text));
+        var targetText,domArray=[];
         if (reg.test(text)) {
+
             // 有几个情况
             // 1.文本本身不止一个{{}}  比如  my name is {{name}},i come from {{country}}
             // 2. {{}}不只单纯是变量 ，可能是简单或者复杂的表达式 比如 {{name+"John"}} {{name.toUpperCase()}} {{name|filterName}}
-            console.log(vm,RegExp.$1,vm[RegExp.$1]);
-            text = text.replace(/\{\{(.*?)\}\}/g,function (all,p1) { return vm[p1]});
-            // 正则提取 好像不太行，正则提取要考虑太多规则了
-            var reg = /([a-zA-Z_]\w*)[\+\-\*%\/\|]/
-            node.nodeValue = text;   
+            // ？？？3. 考虑用with 结合 eval的做法，倒是实现了所有需要的功能，但是又有个安全问题，没有对{{}}里面可能出现的危险性代码做处理。对比了一下vue原生的，貌似也没有做处理丫。这个问题先放着。
+            targetText = text.replace(/\{\{(.*?)\}\}/g,function (all,p1) {
+                var c;
+                domArray.push(p1);
+                new Watcher(vm,node,updateText,text);
+                with(vm){
+                    c = eval(p1);
+                    return c
+                }
+                Dep.target = null;
+            });
+            node.nodeValue = targetText;
         }
         else 
             return
-        new Watcher(vm,node,RegExp.$1,updateText);
-        
+        //这种新建watcher的方法也有问题的,如果一个文本片断有两个或者多个变量，那这种新建监视器的方法就是不生效的。
+        /*
+            单独提出来说一下，以前给文本节点帮 watcher 带 key 的做法是错误的，因为一段文本 比如 {{name.toUpperCase()+country}},首先这个表达式你要区分出来谁tm到底是key，谁是计算的函数就很难
+            然后key拿不到,还想用以前get()的方法去触发observer的方法就失效了。另外考虑到 在用with(vm){eval(p1))的过程中，其实已经用到了vm[key],事实上也触发了get,所以这eval的过程中{{}}里面有几个data的变量
+            其实都触发到了这些变量的get了，既然都触发了，在这之前设置好Dep.target ，在get的时候直接就绑上了，岂不美哉，省得去解析key。而且这个过程也更加理性，并没有多余的触发动作发生。
+            事实上，key的更新导致的视图更新并不只有key，这里面同样要计算其他key的值的，比如name更新了，你得更新这个视图吧，然后更新你就得知道country的最新值，country的值你又去哪里拿呢？目前我的解决方案
+            就是把这个{{}}里面的部分作为需要更新的一个整体，不管哪一个变量更新了，触发的都是这个整体的更新。既然是整体，所以updateText的传参就稍微有点变化，要把{{}}里面的部分和当前node，当前的vm作用域传过去
+            变量更新直接就解析整个模板的值从而触发视图更新。
+        */
+        // domArray.forEach(function (value) {
+        //     console.log("xxxxxxxxxxxx:"+value);
+        //     new Watcher(vm,node,value,updateText);
+        // })
     }
 
 }
-function updateText(node,newval,oldval) {
+function updateText(node,text,vm) {
     console.log("更新准备");
     console.log(node.nodeValue);
-    if(newval === oldval)
-        return
-    else {
-        node.nodeValue = newval;
-        
-    }
+    console.log(vm.name);
+    //console.log(vm);
+    var text = text.replace(/\{\{(.*?)\}\}/g,function (all,p1) { console.log(all,p1);var c;with(vm){c = eval(p1);return c}});
+    console.log(text);
+    node.textContent = text;
 }
