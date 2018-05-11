@@ -21,6 +21,7 @@ function Compile(node,vm) {
     var childNodes = node.childNodes;
     [].slice.call(childNodes).forEach(function(dom) {
         if(self.isElementNode(dom)) {
+            self.compileElementNode(dom,vm);
             new Compile(dom,vm);            //检测是否有vue属性 v-bind v-model v-on v-class v-src 等等,如果有都要进行转换,同时也要绑定更新函数卧槽
         }
         else if(dom.nodeType==3){
@@ -33,7 +34,102 @@ Compile.prototype = {
     isElementNode: function(node) {
         return node.nodeType==1?true:false;
     },
+    /*
+    * 哈哈  一下午就把元素节点编译写得七七八八了，效果还不错的样子 有几个点要注意一下：
+    * 正则真的是神器 ， 灵活运用正则带来的好处简直不能想象 ，比如 v-bind:src = "linkSrc" 要取指令类型(bind),取属性名(src),取属性值(linkSrc)，而且三个值都是不定的，如果不会用正则，光是这个地方
+    * 怕是都要憋破头哈哈。 如果会正则就是一句话的事情，真的是神器！
+    *
+    * 原生js节点的属性和方法一定要熟悉，写框架是不能再去用jquery依赖的，不然光是大小就是个不合格的框架（除非是明确依赖jquey进行开发的，不过那种东西叫插件更合适）。
+    * model 是实现双向绑定的指令，其实也简单的，为model的值绑watcher，然后为可输入框绑定change更新函数更新model的值。
+    * 然后绑事件的oberve和属性observe还是稍微有点不一样的，大多数情况下事件项都是只读，而且事件项的值类型是函数，并不适合Object.defineProperty这种绑定方法，直接遍历挂载到vm实例上就好了。
+    * v-if v-else v-for v-show v-hidden  还没有进行处理 ， v-class 表达式的情况也没有进行处理。
+    * v-if 和 v-else 甚至和 v-else-if 都属于联动的情况，这个要咋个处理呢，得好好想一想了。
+    * */
+    compileElementNode: function (node,vm) {
+        var self = this;
+        //只关注节点本身的，后续的子节点前面遍历过 v-on v-bind v-class v-if v-else v-else-if v-for  v-model
+        var attrs = node.attributes;
+        var showFlag = true;
+        var showText;
+        /*
+        *   如果有v-if 并且 还为false 要不要进行属性编译呢？ 还是要的吧，因为编译过程只有一次，如果因为v-if不编译,那后面v-if动态设置为真的时候,整个节点都处于为编译的状态，是错误的
+        *   要么就把当前节点提取出来设置一个单独的编译过程，然后v-if为真的时候去动态编译节点。
+        *   要么就直接全编译，通过display来响应v-if的动态变化。
+        *   好像上面两个选择分别对应了 v-if 和 v-show啊 ,那就先实现一个再说
+        * */
+        [].slice.call(attrs).forEach(function (attr) {
+            var attrName = attr.name;
+            var attrVal = attr.value;
+            var reg1 = /v-model/,
+                reg2 = /:(.+)/,
+                reg3 = /@(.+)/,
+                showReg = /v-(if|show|hide)/,
+                result;
+            if(result = attrName.match(/v-model/)) {
+                self.tagDeal(node,'model','model',attrVal,vm,attrName)
+            }
+            else if(result = attrName.match(reg2)) {
+                self.tagDeal(node,"bind",result[1],attrVal,vm,attrName);
+            }
+            else if(result = attrName.match(reg3)) {
+                self.tagDeal(node,"on",result[1],attrVal,vm,attrName);
+            }
+            else if(result = attrName.match(/^v-(\w+):(\w+)$/)) {
+                self.tagDeal(node,result[1],result[2],attrVal,vm,attrName);
+            }
+            else if(result = attrName.match(showReg)) {
+                var type = result[1];
+
+                console.log("DDDDDDDDDDDDDDDDDD:"+type);
+                if(type=="if"||type=="show") {
+                    new Watcher(vm,node,updateDomShow,attrVal);
+                    with(vm) {
+                        showFlag = Boolean(eval(attrVal))?true:false;
+                    }
+                }
+                else if(type=="hide") {
+                    new Watcher(vm,node,updateDomHide,attrVal);
+                    with(vm) {
+                        showFlag = Boolean(eval(attrVal))?false:true;
+                    }
+                }
+                Dep.target = null;
+            }
+        })
+        if(!showFlag) {
+            node.style.display = "none";
+        }
+    },
+    tagDeal: function (node,type,name,value,vm,attrName) {
+        switch(type) {
+            case "on": {
+                node.addEventListener(name,function () {
+                    vm[value]();
+                })
+            };break;
+            case "bind":{
+                // 类要单独处理下，因为类的值要和原class的值共存
+                if(name==="class") {
+                    console.log(node.className);
+                    node.className = node.className+" "+vm[value];
+                }
+                else {
+                    node.setAttribute(name,vm[value]);
+                }
+            };break;
+            case "model":{
+                new Watcher(vm,node,updateInput,value);
+                node.value = vm[value];
+                Dep.target = null;
+                node.addEventListener("change",function (event) {
+                    vm[value] = event.target.value;
+                });
+            };break;
+        }
+        node.removeAttribute(attrName);
+    },
     compileTextNode: function(node,vm) {
+        // !!过滤器的情况还没有进行处理哦,而且过滤器本身是要自己定义的，这个里面逻辑要想一想
         var text = node.nodeValue, // 单纯对文本节点来说nodeValue 和 textContent 基本是一样的
             reg = /\{\{(.*?)\}\}/g;
         var vim = vm;
@@ -82,4 +178,35 @@ function updateText(node,text,vm) {
     var text = text.replace(/\{\{(.*?)\}\}/g,function (all,p1) { console.log(all,p1);var c;with(vm){c = eval(p1);return c}});
     console.log(text);
     node.textContent = text;
+}
+function updateInput(node,key,vm) {
+    node.value = vm[key];
+}
+function  updateDomShow(node,text,vm) {
+    console.log(node);
+    var flag;
+    with(vm) {
+
+        flag = Boolean(eval(text));
+        if(flag) {
+            node.style.display = "block"
+        }
+        else {
+            node.style.display = "none"
+        }
+    }
+}
+function  updateDomHide(node,text,vm) {
+    console.log(node);
+    var flag;
+    with(vm) {
+
+        flag = Boolean(eval(text));
+        if(flag) {
+            node.style.display = "none"
+        }
+        else {
+            node.style.display = "block"
+        }
+    }
 }

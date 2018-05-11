@@ -45,6 +45,11 @@ function Observe(vm,odata) {
 
 }) 
 }
+function OberveEvent(vm,methods) {
+    Object.keys(methods).forEach(function (event) {
+        vm[event] = methods[event];
+    })
+}
 function Dep(){
     // 为什么是一个数组大概了解了，因为一个变量可能绑定在文档多个节点处，这个变量更新了，所有和该变量关联的节点都必须更新。所以遍历deps执行更新操作就是这么来的。
     this.deps = [];
